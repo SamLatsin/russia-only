@@ -1,0 +1,59 @@
+name: build
+on:
+  schedule: [{ cron: "30 1 * * *" }]
+  workflow_dispatch:
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download golukon
+        run: |
+          curl -fsSL -o gl-site.dat https://raw.githubusercontent.com/golukon/russia-only-geosite/release/geosite.dat
+          curl -fsSL -o gl-ip.dat   https://raw.githubusercontent.com/golukon/russia-only-geoip/release/geoip.dat
+
+      - name: Merge with cn stub
+        run: |
+          python3 stub.py
+          mkdir -p out
+          cat gl-site.dat stub-site.dat > out/geosite.dat
+          cat gl-ip.dat   stub-ip.dat   > out/geoip.dat
+          cd out && sha256sum geosite.dat geoip.dat > sha256sums.txt
+
+      - name: Verify with mihomo
+        run: |
+          V=$(curl -fsSL https://github.com/MetaCubeX/mihomo/releases/latest/download/version.txt)
+          curl -fsSL "https://github.com/MetaCubeX/mihomo/releases/latest/download/mihomo-linux-amd64-$V.gz" | gunzip > mihomo
+          chmod +x mihomo
+          mkdir t && cp out/geosite.dat t/GeoSite.dat && cp out/geoip.dat t/GeoIP.dat
+          cat > t/config.yaml <<'EOF'
+          geodata-mode: true
+          geodata-loader: memconservative
+          geox-url:
+            geoip: "http://127.0.0.1:1/x"
+            geosite: "http://127.0.0.1:1/x"
+          rules:
+            - GEOSITE,ru-inside,DIRECT
+            - GEOIP,ru,DIRECT
+            - MATCH,DIRECT
+          EOF
+          ./mihomo -t -d t -f t/config.yaml 2>&1 | tee log.txt
+          ! grep -qiE 'invalid|remove and download|failed' log.txt
+
+      - name: Publish to release branch
+        run: |
+          cd out
+          git init -q -b release
+          git add .
+          git -c user.name=bot -c user.email=bot@users.noreply.github.com commit -qm "$(date -u +%F)"
+          git push -qf "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}" release
+
+      - name: Purge jsDelivr cache
+        run: |
+          for f in geosite.dat geoip.dat; do
+            curl -s "https://purge.jsdelivr.net/gh/${{ github.repository }}@release/$f"; echo
+          done
