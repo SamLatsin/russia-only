@@ -2,6 +2,9 @@ name: build
 on:
   schedule: [{ cron: "30 1 * * *" }]
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths: [custom/**, export.py, stub.py, .github/workflows/build.yml]
 permissions:
   contents: write
 
@@ -22,27 +25,44 @@ jobs:
           mkdir -p out
           cat gl-site.dat stub-site.dat > out/geosite.dat
           cat gl-ip.dat   stub-ip.dat   > out/geoip.dat
-          cd out && sha256sum geosite.dat geoip.dat > sha256sums.txt
 
-      - name: Verify with mihomo
+      - name: Download mihomo
         run: |
           V=$(curl -fsSL https://github.com/MetaCubeX/mihomo/releases/latest/download/version.txt)
           curl -fsSL "https://github.com/MetaCubeX/mihomo/releases/latest/download/mihomo-linux-amd64-$V.gz" | gunzip > mihomo
           chmod +x mihomo
-          mkdir t && cp out/geosite.dat t/GeoSite.dat && cp out/geoip.dat t/GeoIP.dat
+
+      - name: Build rule-sets (.dat category + custom/)
+        run: |
+          python3 export.py site out/geosite.dat ru-inside out/ru-inside.txt custom/ru-inside.txt
+          python3 export.py ip   out/geoip.dat   ru        out/ru.txt        custom/ru.txt
+          ./mihomo convert-ruleset domain text out/ru-inside.txt out/ru-inside.mrs
+          ./mihomo convert-ruleset ipcidr text out/ru.txt        out/ru.mrs
+          cd out && sha256sum * > sha256sums.txt
+
+      - name: Verify with mihomo
+        run: |
+          mkdir -p t/ruleset
+          cp out/geosite.dat t/GeoSite.dat && cp out/geoip.dat t/GeoIP.dat
+          cp out/ru-inside.mrs out/ru.mrs t/ruleset/
           cat > t/config.yaml <<'EOF'
           geodata-mode: true
           geodata-loader: memconservative
           geox-url:
             geoip: "http://127.0.0.1:1/x"
             geosite: "http://127.0.0.1:1/x"
+          rule-providers:
+            ru-inside: { type: file, behavior: domain, format: mrs, path: ./ruleset/ru-inside.mrs }
+            ru: { type: file, behavior: ipcidr, format: mrs, path: ./ruleset/ru.mrs }
           rules:
             - GEOSITE,ru-inside,DIRECT
             - GEOIP,ru,DIRECT
+            - RULE-SET,ru-inside,DIRECT
+            - RULE-SET,ru,DIRECT
             - MATCH,DIRECT
           EOF
           ./mihomo -t -d t -f t/config.yaml 2>&1 | tee log.txt
-          ! grep -qiE 'invalid|remove and download|failed' log.txt
+          ! grep -qiE 'invalid|remove and download|failed|error' log.txt
 
       - name: Publish to release branch
         run: |
@@ -54,6 +74,6 @@ jobs:
 
       - name: Purge jsDelivr cache
         run: |
-          for f in geosite.dat geoip.dat; do
+          for f in geosite.dat geoip.dat ru-inside.mrs ru-inside.txt ru.mrs ru.txt sha256sums.txt; do
             curl -s "https://purge.jsdelivr.net/gh/${{ github.repository }}@release/$f"; echo
           done
