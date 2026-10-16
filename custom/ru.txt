@@ -1,0 +1,3 @@
+# Extra subnets for ru (added to golukon's geoip ru in ru.mrs).
+#   203.0.113.0/24     add
+#   !203.0.113.0/24    remove

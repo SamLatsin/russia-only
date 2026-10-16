@@ -1,0 +1,5 @@
+# Extra domains for ru-inside (added to golukon's list in ru-inside.mrs).
+#   example.ru     domain and subdomains
+#   =example.ru    only this exact domain
+#   !example.ru    remove from the list
+api.oneme.ru
