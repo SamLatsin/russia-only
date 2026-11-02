@@ -1,0 +1,19 @@
+# Extra domains for ru-services (added to Davoyan's category-ru in ru-services.mrs).
+# Russian services outside .ru/.su/.рф that are not in the ru-inside whitelist;
+# anything already covered by ru-inside is removed automatically.
+#   example.com    domain and subdomains
+#   =example.com   only this exact domain
+#   !example.com   remove it and its subdomains from the list
+#   !=example.com  remove only this exact domain
+
+# Russian zones: match them with DOMAIN-SUFFIX in the config instead
+!ru
+!su
+!xn--p1ai
+
+# IP checkers: should show the real exit IP, not be routed as Russian
+!checkip.amazonaws.com
+!ifconfig.me
+!ipify.org
+
+yandex.cloud

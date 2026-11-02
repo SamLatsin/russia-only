@@ -19,6 +19,9 @@ jobs:
           curl -fsSL -o gl-site.dat https://raw.githubusercontent.com/golukon/russia-only-geosite/release/geosite.dat
           curl -fsSL -o gl-ip.dat   https://raw.githubusercontent.com/golukon/russia-only-geoip/release/geoip.dat
 
+      - name: Download Davoyan category-ru
+        run: curl -fsSL -o category-ru.yaml https://raw.githubusercontent.com/Davoyan/mihomo-rule-sets/main/rules/category-ru.yaml
+
       - name: Merge with cn stub
         run: |
           python3 stub.py
@@ -36,15 +39,25 @@ jobs:
         run: |
           python3 export.py site out/geosite.dat ru-inside out/ru-inside.txt custom/ru-inside.txt
           python3 export.py ip   out/geoip.dat   ru        out/ru.txt        custom/ru.txt
-          ./mihomo convert-ruleset domain text out/ru-inside.txt out/ru-inside.mrs
-          ./mihomo convert-ruleset ipcidr text out/ru.txt        out/ru.mrs
+          python3 export.py text category-ru.yaml out/ru-services.txt custom/ru-services.txt --minus out/ru-inside.txt
+          ./mihomo convert-ruleset domain text out/ru-inside.txt   out/ru-inside.mrs
+          ./mihomo convert-ruleset domain text out/ru-services.txt out/ru-services.mrs
+          ./mihomo convert-ruleset ipcidr text out/ru.txt          out/ru.mrs
           cd out && sha256sum * > sha256sums.txt
+
+      - name: Check rule counts
+        run: |
+          # fail instead of publishing a gutted list if an upstream source breaks
+          check() { n=$(wc -l < "out/$1"); echo "$1: $n"; [ "$n" -ge "$2" ] || { echo "::error::$1 has $n rules, expected >= $2"; exit 1; }; }
+          check ru-inside.txt   400
+          check ru-services.txt 600
+          check ru.txt          5000
 
       - name: Verify with mihomo
         run: |
           mkdir -p t/ruleset
           cp out/geosite.dat t/GeoSite.dat && cp out/geoip.dat t/GeoIP.dat
-          cp out/ru-inside.mrs out/ru.mrs t/ruleset/
+          cp out/ru-inside.mrs out/ru-services.mrs out/ru.mrs t/ruleset/
           cat > t/config.yaml <<'EOF'
           geodata-mode: true
           geodata-loader: memconservative
@@ -53,11 +66,13 @@ jobs:
             geosite: "http://127.0.0.1:1/x"
           rule-providers:
             ru-inside: { type: file, behavior: domain, format: mrs, path: ./ruleset/ru-inside.mrs }
+            ru-services: { type: file, behavior: domain, format: mrs, path: ./ruleset/ru-services.mrs }
             ru: { type: file, behavior: ipcidr, format: mrs, path: ./ruleset/ru.mrs }
           rules:
             - GEOSITE,ru-inside,DIRECT
             - GEOIP,ru,DIRECT
             - RULE-SET,ru-inside,DIRECT
+            - RULE-SET,ru-services,DIRECT
             - RULE-SET,ru,DIRECT
             - MATCH,DIRECT
           EOF
@@ -74,6 +89,6 @@ jobs:
 
       - name: Purge jsDelivr cache
         run: |
-          for f in geosite.dat geoip.dat ru-inside.mrs ru-inside.txt ru.mrs ru.txt sha256sums.txt; do
+          for f in geosite.dat geoip.dat ru-inside.mrs ru-inside.txt ru-services.mrs ru-services.txt ru.mrs ru.txt sha256sums.txt; do
             curl -s "https://purge.jsdelivr.net/gh/${{ github.repository }}@release/$f"; echo
           done

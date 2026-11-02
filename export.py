@@ -3,10 +3,16 @@
   python3 export.py site geosite.dat ru-inside out/ru-inside.txt [custom/ru-inside.txt]
   python3 export.py ip   geoip.dat   ru        out/ru.txt        [custom/ru.txt]
   python3 export.py site geosite.dat ru-inside -                  # print to stdout
+  python3 export.py text category-ru.yaml out/ru-services.txt [custom/ru-services.txt] \
+      [--minus out/ru-inside.txt]
+
+`text` reads a mihomo domain ruleset (text, or yaml `payload:`) instead of a .dat.
+`--minus FILE` drops every domain already covered by the rules in FILE.
 
 Custom files: one entry per line, `#` comments. `example.com` means the domain
 and its subdomains (`+.example.com`), `=example.com` only the domain itself,
-`!example.com` drops it from the result. For ip: CIDR, `!CIDR` drops.
+`!example.com` drops it and its subdomains (`!ru` drops the whole zone),
+`!=example.com` only the domain itself. For ip: CIDR, `!CIDR` drops.
 Then `mihomo convert-ruleset domain|ipcidr text <txt> <mrs>`.
 """
 import ipaddress
@@ -67,6 +73,24 @@ def ip(items):
         yield str(ipaddress.ip_network((ipaddress.ip_address(c[1]), c.get(2, 0))))
 
 
+def text(path):
+    for line in open(path, encoding="utf-8"):
+        line = line.split("#", 1)[0].strip()
+        if line.startswith("- "):
+            line = line[2:].strip().strip("'\"")
+        if line and not line.endswith(":"):
+            yield line.lower()
+
+
+def covered(rule, by):
+    # is the host part of `rule` matched by some `+.x` (x or its subdomain) or exact rule in `by`
+    host = rule.removeprefix("+.")
+    if rule in by:
+        return True
+    labels = host.split(".")
+    return any("+." + ".".join(labels[i:]) in by for i in range(len(labels)))
+
+
 def custom(kind, path):
     add, drop = set(), set()
     for line in open(path, encoding="utf-8"):
@@ -85,12 +109,27 @@ def custom(kind, path):
     return add, drop
 
 
-kind, src, code, dst, *extra = sys.argv[1:]
-lines = set({"site": site, "ip": ip}[kind](entries(src, code)))
+kind, *args = sys.argv[1:]
+minus = set()
+while "--minus" in args:
+    i = args.index("--minus")
+    minus |= set(text(args.pop(i + 1)))
+    args.pop(i)
+if kind == "text":
+    src, dst, *extra = args
+    lines = set(text(src))
+else:
+    src, code, dst, *extra = args
+    lines = set({"site": site, "ip": ip}[kind](entries(src, code)))
 base = len(lines)
 for path in extra:
     add, drop = custom(kind, path)
-    lines = (lines | add) - drop
+    lines |= add
+    if kind == "ip":
+        lines -= drop
+    else:
+        lines = {r for r in lines if not covered(r, drop)}
+lines = {r for r in lines if not covered(r, minus)}
 text = "\n".join(sorted(lines)) + "\n"
 if dst == "-":
     sys.stdout.write(text)
