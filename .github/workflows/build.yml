@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: [custom/**, export.py, stub.py, .github/workflows/build.yml]
+    paths: [custom/**, export.py, check.py, stub.py, .github/workflows/build.yml]
 permissions:
   contents: write
 
@@ -52,6 +52,11 @@ jobs:
           check ru-inside.txt   400
           check ru-services.txt 600
           check ru.txt          5000
+
+      - name: Check rule contents
+        run: |
+          python3 check.py domain out/ru-inside.txt out/ru-services.txt
+          python3 check.py ip     out/ru.txt
 
       - name: Verify with mihomo
         run: |
