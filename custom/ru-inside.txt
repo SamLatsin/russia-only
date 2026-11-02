@@ -3,3 +3,4 @@
 #   =example.ru    only this exact domain
 #   !example.ru    remove from the list
 api.oneme.ru
+yandex.cloud
